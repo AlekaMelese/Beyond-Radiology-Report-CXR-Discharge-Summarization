@@ -13,10 +13,11 @@ architectures, the training hyperparameters, the prompts and the evaluation prot
 ## Contents
 1. [Task](#1-task)
 2. [Model architectures](#2-model-architectures)
-3. [Training hyperparameters](#3-training-hyperparameters)
-4. [Prompts](#4-prompts)
-5. [Data and evaluation protocol](#5-data-and-evaluation-protocol)
-6. [Data access](#6-data-access)
+3. [Mathematical formulation](#3-mathematical-formulation)
+4. [Training hyperparameters](#4-training-hyperparameters)
+5. [Prompts](#5-prompts)
+6. [Data and evaluation protocol](#6-data-and-evaluation-protocol)
+7. [Data access](#7-data-access)
 
 ---
 
@@ -62,7 +63,66 @@ The radiograph is stored at 512 × 512 pixels and resized by each model's proces
 
 ---
 
-## 3. Training hyperparameters
+## 3. Mathematical formulation
+
+### 3.1 Input encoding
+The vision encoder $h$ splits the radiograph $\mathbf{I}$ into patches and produces $T$ patch features of
+dimension $D_v$; the connector $g$ maps them to $K$ visual tokens in the decoder's embedding space of
+dimension $d$:
+
+$$\mathbf{V} = g\big(h(\mathbf{I})\big) \in \mathbb{R}^{K \times d}.$$
+
+The instruction, the note $\mathbf{N}$ and the report $\mathbf{R}$ are tokenized and embedded as
+$\mathbf{E} \in \mathbb{R}^{M \times d}$. The decoder input is the sequence $[\mathbf{V}; \mathbf{E}]$
+with the radiograph, and $\mathbf{E}$ alone for the text-only baseline.
+
+### 3.2 Generation
+The decoder generates the hospital course $\mathbf{y} = (y_1, \dots, y_L)$ autoregressively:
+
+$$p_\theta(\mathbf{y} \mid \mathbf{N}, \mathbf{R}, \mathbf{I}) = \prod_{t=1}^{L} p_\theta\big(y_t \mid y_{<t}, \mathbf{V}, \mathbf{E}\big),$$
+
+with greedy decoding, $y_t = \arg\max_{w} p_\theta(w \mid y_{<t}, \mathbf{V}, \mathbf{E})$.
+
+### 3.3 Training objective
+Each model is fine-tuned by minimizing the negative log-likelihood of the reference hospital course
+$\mathbf{y}^\ast$, computed **on the target tokens only** (prompt and padding tokens are masked out of the loss):
+
+$$\mathcal{L}(\theta) = -\sum_{t=1}^{|\mathbf{y}^\ast|} \log p_\theta\big(y^\ast_t \mid y^\ast_{<t}, \mathbf{V}, \mathbf{E}\big).$$
+
+### 3.4 Low-rank adaptation (LoRA)
+For each adapted weight matrix $W_0 \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ of the decoder
+(query, key, value, output and the three feed-forward projections), LoRA learns a low-rank update while
+$W_0$ stays frozen:
+
+$$W = W_0 + \frac{\alpha}{r}\, B A, \qquad B \in \mathbb{R}^{d_{\text{out}} \times r},\quad A \in \mathbb{R}^{r \times d_{\text{in}}},\quad r \ll \min(d_{\text{in}}, d_{\text{out}}).$$
+
+Only $A$ and $B$ are trained; $r$ and $\alpha$ for each model are given in Section 4.
+
+### 3.5 Evaluation measures
+For a generated summary $\hat{\mathbf{y}}$ and the reference $\mathbf{y}^\ast$:
+
+- **ROUGE-N (F1).** With $G_n(\cdot)$ the multiset of $n$-grams,
+
+$$P_n = \frac{|G_n(\hat{\mathbf{y}}) \cap G_n(\mathbf{y}^\ast)|}{|G_n(\hat{\mathbf{y}})|}, \qquad R_n = \frac{|G_n(\hat{\mathbf{y}}) \cap G_n(\mathbf{y}^\ast)|}{|G_n(\mathbf{y}^\ast)|}, \qquad F_n = \frac{2 P_n R_n}{P_n + R_n}.$$
+
+  ROUGE-L uses the longest common subsequence in place of the $n$-gram overlap.
+- **BERTScore.** With contextual token embeddings $\mathbf{e}$,
+
+$$R_{\text{BERT}} = \frac{1}{|\mathbf{y}^\ast|}\sum_{u \in \mathbf{y}^\ast} \max_{v \in \hat{\mathbf{y}}} \cos(\mathbf{e}_u, \mathbf{e}_v), \qquad P_{\text{BERT}} = \frac{1}{|\hat{\mathbf{y}}|}\sum_{v \in \hat{\mathbf{y}}} \max_{u \in \mathbf{y}^\ast} \cos(\mathbf{e}_u, \mathbf{e}_v), \qquad F_{\text{BERT}} = \frac{2 P_{\text{BERT}} R_{\text{BERT}}}{P_{\text{BERT}} + R_{\text{BERT}}}.$$
+
+- **METEOR.** A harmonic mean of unigram precision and recall (recall weighted higher) after exact, stem
+  and synonym matching, with a penalty for fragmented matches.
+- **RadGraph F1.** The F1 score between the clinical entities and relations that RadGraph extracts from
+  $\hat{\mathbf{y}}$ and from $\mathbf{y}^\ast$ (partial-reward setting).
+- **ClinicalBERT similarity.** With $\bar{\mathbf{e}}(\cdot)$ the mean-pooled Bio_ClinicalBERT embedding,
+
+$$\text{sim}(\hat{\mathbf{y}}, \mathbf{y}^\ast) = \cos\big(\bar{\mathbf{e}}(\hat{\mathbf{y}}), \bar{\mathbf{e}}(\mathbf{y}^\ast)\big).$$
+
+Every measure is computed per record and averaged over the test records.
+
+---
+
+## 4. Training hyperparameters
 
 | Setting | LLaVA-Med-7B | CheXagent-8b | MedGemma-27B |
 |---|---|---|---|
@@ -87,9 +147,9 @@ The text-only baseline of each model uses exactly the same settings.
 
 ---
 
-## 4. Prompts
+## 5. Prompts
 
-### 4.1 Hospital course (fine-tuned model)
+### 5.1 Hospital course (fine-tuned model)
 
 ```
 SYSTEM
@@ -111,7 +171,7 @@ Write the Brief Hospital Course (BHC):
 With the radiograph, the image is passed to the model's processor together with this prompt. The
 text-only baseline uses the same prompt without the image.
 
-### 4.2 Radiology findings (separate pass, report only)
+### 5.2 Radiology findings (separate pass, report only)
 
 ```
 {system prompt above}
@@ -125,7 +185,7 @@ REPORT:
 SUMMARY:
 ```
 
-### 4.3 Interpretation of the radiograph (separate pass, image only)
+### 5.3 Interpretation of the radiograph (separate pass, image only)
 
 ```
 {system prompt above}
@@ -136,7 +196,7 @@ Do not speculate beyond what is visible in the image.
 
 Each model wraps these prompts in its own chat format (e.g. `[INST] … [/INST]` for LLaVA-Med).
 
-### 4.4 Decoding
+### 5.4 Decoding
 
 | Pass | Maximum new tokens | Decoding |
 |---|---|---|
@@ -146,9 +206,9 @@ Each model wraps these prompts in its own chat format (e.g. `[INST] … [/INST]`
 
 ---
 
-## 5. Data and evaluation protocol
+## 6. Data and evaluation protocol
 
-### 5.1 Data
+### 6.1 Data
 - **MIMIC-IV-Ext-BHC** (discharge notes and reference hospital course), **MIMIC-CXR** (radiology reports)
   and **MIMIC-CXR-JPG** (radiographs), joined into 44,701 note–report–radiograph records.
 - Split **at the patient level** into training, validation and test sets (80:10:10), so no patient appears
@@ -156,7 +216,7 @@ Each model wraps these prompts in its own chat format (e.g. `[INST] … [/INST]`
 - **Discharge_Me** is used only for external evaluation, without retraining: each record is joined to a
   chest radiology report from the same admission and a chest radiograph of the same patient (1,000 records).
 
-### 5.2 Measures
+### 6.2 Measures
 
 | Measure | Implementation | Settings |
 |---|---|---|
@@ -171,7 +231,7 @@ test records.
 
 ---
 
-## 6. Data access
+## 7. Data access
 
 The MIMIC datasets and Discharge_Me are available on [PhysioNet](https://physionet.org/) after
 credentialing and signing the data use agreement. No patient data is included in this repository.
