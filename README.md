@@ -18,6 +18,7 @@ architectures, the training hyperparameters, the prompts and the evaluation prot
 5. [Prompts](#5-prompts)
 6. [Data and evaluation protocol](#6-data-and-evaluation-protocol)
 7. [Data access](#7-data-access)
+8. [Code](#8-code)
 
 ---
 
@@ -235,6 +236,33 @@ test records.
 
 The MIMIC datasets and Discharge_Me are available on [PhysioNet](https://physionet.org/) after
 credentialing and signing the data use agreement. No patient data is included in this repository.
+
+---
+
+## 8. Code
+
+```
+src/
+├── data/                       # shared data preparation
+│   ├── 01_build_multimodal_join.py   # join notes, reports and radiographs into records
+│   ├── 02_split_dataset.py           # patient-level 80:10:10 split
+│   ├── 04_preprocess.py              # image resizing (512 x 512) and text normalization
+│   └── 04b_clean_text.py             # placeholder removal and note truncation
+├── llava_med/                  # LLaVA-Med-7B
+├── chexagent/                  # CheXagent-8b
+└── medgemma/                   # MedGemma-27B
+    ├── models_config.py              # model id and settings
+    ├── 05_multimodal_dataset.py      # dataset (note + report, with or without the radiograph)
+    ├── 06_train_lora.py              # LoRA fine-tuning: --mode ft_mm (with radiograph), --mode ft (text-only baseline)
+    ├── 08_generate.py                # three-pass generation
+    ├── 10_evaluate.py                # evaluation measures
+    └── 07_kg_retrieval.py            # imported by the scripts; not used in this paper
+```
+
+Each model folder contains the scripts that were used for that model. The data folder is set by
+`DATA_DIR` in the scripts (default `data/`). The scripts also contain retrieval options from related
+work (`--mode raft`, `07_kg_retrieval.py`); this paper uses only `--mode ft_mm` (note, report and radiograph)
+and `--mode ft` (the text-only baseline).
 
 ---
 
