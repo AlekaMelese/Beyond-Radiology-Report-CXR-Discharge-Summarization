@@ -5,6 +5,7 @@ import re
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import os
 from pathlib import Path
 import pandas as pd
 try:
@@ -12,7 +13,7 @@ try:
 except ImportError:
     sys.exit('ERROR: Pillow not installed. Run: pip install Pillow')
 HERE = Path(__file__).resolve().parent
-DATA_DIR = HERE / 'data'
+DATA_DIR = Path(os.environ.get('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
 CACHE_DIR = DATA_DIR / 'preprocessed' / 'images'
 SUMMARY = DATA_DIR / 'preprocess_summary.csv'
 SPLITS = ['train', 'val', 'test']

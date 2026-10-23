@@ -18,7 +18,7 @@ from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN
 from llava.mm_utils import tokenizer_image_token
 from models_config import get_model
 HERE = Path(__file__).resolve().parent
-DATA_DIR = HERE / 'data'
+DATA_DIR = Path(os.environ.get('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
 
 def _import_local(name: str, filename: str):
     spec = importlib.util.spec_from_file_location(name, HERE / filename)

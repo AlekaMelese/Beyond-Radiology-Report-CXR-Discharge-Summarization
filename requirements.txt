@@ -1,0 +1,21 @@
+# Versions used in our experiments (PyTorch was built for ROCm; install the build for your GPU)
+torch==2.7.1
+torchvision==0.22.1
+transformers==4.50.3
+peft==0.17.1
+accelerate==1.10.1
+safetensors==0.8.0
+huggingface_hub==0.36.2
+numpy==1.26.4
+pandas==3.0.3
+pillow==12.2.0
+tqdm==4.68.3
+matplotlib==3.11.0
+
+# Evaluation
+rouge_score==0.1.2
+bert-score==0.3.13
+nltk==3.9.4
+radgraph==0.1.18
+
+# LLaVA-Med (install from source): https://github.com/microsoft/LLaVA-Med

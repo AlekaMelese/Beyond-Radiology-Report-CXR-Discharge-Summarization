@@ -4,9 +4,10 @@ import json
 import re
 import sys
 from datetime import datetime
+import os
 from pathlib import Path
 HERE = Path(__file__).resolve().parent
-DATA_DIR = HERE / 'data'
+DATA_DIR = Path(os.environ.get('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
 DEFAULT_MAX_NOTE_CHARS = 5000
 DEFAULT_MIN_TARGET_CHARS = 200
 DEFAULT_MAX_TARGET_CHARS = 4000

@@ -273,37 +273,98 @@ credentialing and signing the data use agreement. No source patient data (notes,
 
 ## 8. Repository structure and code
 
+### 8.1 Repository structure
+
 ```
 .
-├── README.md                          # this page: supplementary material and usage
-├── LICENSE                            # MIT License
+├── README.md                              # this page: supplementary material and usage
+├── LICENSE                                # MIT License
+├── requirements.txt                       # Python packages
 └── src/
-    ├── data/                          # data preparation
+    ├── data/                              # data preparation (run in this order)
     │   ├── 01_build_multimodal_join.py    # join notes, reports and radiographs into records
     │   ├── 02_split_dataset.py            # patient-level 80:10:10 split
+    │   ├── 03_validate_data.py            # remove records with missing or unreadable images
     │   ├── 04_preprocess.py               # image resizing (512 x 512) and text normalization
     │   └── 04b_clean_text.py              # placeholder removal and note truncation
-    └── codes/                         # training, generation and evaluation
+    └── codes/                             # training, generation and evaluation
         ├── models_config.py               # model id and output folders
         ├── 05_multimodal_dataset.py       # dataset (note, report and radiograph)
-        ├── 06_train_lora.py               # LoRA fine-tuning: --mode ft_mm (with radiograph), --mode ft (text-only baseline)
-        ├── 08_generate.py                 # three-pass generation (--include-radiology, --include-vqa; --no-image for the baseline)
+        ├── 06_train_lora.py               # LoRA fine-tuning
+        ├── 08_generate.py                 # three-pass generation
         └── 10_evaluate.py                 # the eight evaluation measures
 ```
 
 The scripts in `src/codes/` are the reference implementation for LLaVA-Med-7B; CheXagent-8b and
 MedGemma-27B follow the same pipeline with their own model loading and chat format.
 
-Example:
+### 8.2 Step-by-step example
+
+**Step 0. Install**
 
 ```bash
-python src/codes/06_train_lora.py --mode ft_mm --fsdp          # train with the radiograph
-python src/codes/06_train_lora.py --mode ft --fsdp             # train the text-only baseline
-python src/codes/08_generate.py --mode ft_mm --include-radiology --include-vqa
-python src/codes/10_evaluate.py <predictions.jsonl>
+pip install -r requirements.txt
+# LLaVA-Med from source: https://github.com/microsoft/LLaVA-Med
 ```
 
-Each script reads and writes a `data/` folder next to it.
+**Step 1. Place the PhysioNet data in `data/`** (at the repository root; another location can be set
+with the `DATA_DIR` environment variable)
+
+```
+data/
+├── mimic.csv                     # MIMIC-IV-Ext-BHC notes with their brief hospital course
+├── mimic-cxr-reports/            # MIMIC-CXR free-text radiology reports
+└── physionet.org/2.1.0/files/    # MIMIC-CXR-JPG images (as downloaded from PhysioNet)
+```
+
+**Step 2. Prepare the records** (join, split, validate, preprocess, clean)
+
+```bash
+python src/data/01_build_multimodal_join.py
+python src/data/02_split_dataset.py
+python src/data/03_validate_data.py
+python src/data/04_preprocess.py
+python src/data/04b_clean_text.py
+```
+
+Result: `data/multimodal_{train,val,test}_cleaned.jsonl` and the resized images in
+`data/preprocessed/images/`.
+
+**Step 3. Fine-tune the two configurations**
+
+```bash
+# with the radiograph (note + report + radiograph)
+torchrun --nproc_per_node=8 src/codes/06_train_lora.py --mode ft_mm --fsdp
+
+# matched text-only baseline (note + report)
+torchrun --nproc_per_node=8 src/codes/06_train_lora.py --mode ft --fsdp
+```
+
+On a single GPU, run `python src/codes/06_train_lora.py --mode ft_mm` (without `--fsdp`). The LoRA
+adapters are saved in `src/codes/runs/llava_med_1_5_7b/<mode>/`.
+
+**Step 4. Generate the three-part summaries on the test set**
+
+```bash
+# with the radiograph: hospital course + radiology findings + interpretation of the radiograph
+python src/codes/08_generate.py --mode ft_mm --split test --include-radiology --include-vqa
+
+# text-only baseline: hospital course + radiology findings (no image)
+python src/codes/08_generate.py --mode ft --split test --include-radiology --no-image
+```
+
+The predictions are written to `src/codes/runs/llava_med_1_5_7b/generated/test_<mode>_<timestamp>.jsonl`.
+
+**Step 5. Evaluate**
+
+```bash
+python src/codes/10_evaluate.py src/codes/runs/llava_med_1_5_7b/generated/test_ft_mm_<timestamp>.jsonl
+python src/codes/10_evaluate.py src/codes/runs/llava_med_1_5_7b/generated/test_ft_<timestamp>.jsonl
+```
+
+Each command prints and saves the eight measures (ROUGE-1, ROUGE-L, METEOR, BERTScore P/R/F1,
+RadGraph F1, ClinicalBERT similarity) in `<predictions>_metrics.json`. Comparing the two files gives
+what the radiograph adds.
 
 ---
 

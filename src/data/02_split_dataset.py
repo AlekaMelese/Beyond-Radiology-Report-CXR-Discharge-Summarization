@@ -3,11 +3,13 @@ import json
 import random
 import sys
 from collections import defaultdict
+import os
 from pathlib import Path
 import pandas as pd
 HERE = Path(__file__).resolve().parent
-INPUT = HERE.parent / 'Data' / 'multimodal_records.jsonl'
-OUT_DIR = HERE / 'data'
+DATA_DIR = Path(os.environ.get('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
+INPUT = DATA_DIR / 'multimodal_records.jsonl'
+OUT_DIR = DATA_DIR
 TRAIN_FILE = OUT_DIR / 'multimodal_train.jsonl'
 VAL_FILE = OUT_DIR / 'multimodal_val.jsonl'
 TEST_FILE = OUT_DIR / 'multimodal_test.jsonl'

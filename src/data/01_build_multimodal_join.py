@@ -1,9 +1,10 @@
 from __future__ import annotations
 import json
 import sys
+import os
 from pathlib import Path
 import pandas as pd
-DATA_DIR = Path('data')
+DATA_DIR = Path(os.environ.get('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
 MIMIC_CSV = DATA_DIR / 'mimic.csv'
 REPORTS_DIR = DATA_DIR / 'mimic-cxr-reports'
 JPGS_DIR = DATA_DIR / 'physionet.org' / '2.1.0' / 'files'

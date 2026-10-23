@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import os
 from pathlib import Path
 from typing import Any
 try:
@@ -15,7 +16,7 @@ except ImportError:
     Dataset = object
     _TORCH_AVAILABLE = False
 HERE = Path(__file__).resolve().parent
-DATA_DIR = HERE / 'data'
+DATA_DIR = Path(os.environ.get('DATA_DIR', Path(__file__).resolve().parents[2] / 'data'))
 _IMAGE_DIR = DATA_DIR / 'preprocessed' / 'images'
 
 def _split_file(split: str) -> Path:
