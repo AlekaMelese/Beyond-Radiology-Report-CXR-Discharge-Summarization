@@ -17,19 +17,14 @@ def _import_local(stem: str, filename: str):
     spec.loader.exec_module(mod)
     return mod
 _dataset_mod = _import_local('multimodal_dataset', '05_multimodal_dataset.py')
-_kg_mod = _import_local('kg_retrieval', '07_kg_retrieval.py')
 MultimodalDataset = _dataset_mod.MultimodalDataset
-KGRetriever = _kg_mod.KGRetriever
-SECTIONS_11 = _kg_mod.SECTIONS_11
 from models_config import get_model, ModelSpec
 logger = logging.getLogger('generate_llava')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 SYSTEM_PROMPT = "You are a clinical writing assistant. Given a patient's discharge note, a chest X-ray image, and a paired radiology report, write the BRIEF HOSPITAL COURSE (BHC) section. Use ONLY information present in the note, image, and report. Do NOT introduce facts that are not supported by the sources."
 
-def build_user_text(record: dict, kg_block: str) -> str:
+def build_user_text(record: dict) -> str:
     parts = ['CLINICAL NOTE:', record['input_note'].strip(), '', 'PAIRED RADIOLOGY REPORT:', record['report'].strip()]
-    if kg_block:
-        parts += ['', kg_block]
     parts += ['', 'Write the Brief Hospital Course (BHC):']
     return '\n'.join(parts)
 
@@ -42,10 +37,10 @@ class _LLaVAComponents:
     def decode(self, token_ids, skip_special_tokens: bool=True) -> str:
         return self.tokenizer.decode(token_ids, skip_special_tokens=skip_special_tokens)
 
-def _build_llava(components: _LLaVAComponents, record: dict, kg_block: str, no_image: bool=False) -> dict:
+def _build_llava(components: _LLaVAComponents, record: dict, no_image: bool=False) -> dict:
     from llava.constants import IMAGE_TOKEN_INDEX, DEFAULT_IMAGE_TOKEN
     from llava.mm_utils import tokenizer_image_token
-    user_text = SYSTEM_PROMPT + '\n\n' + build_user_text(record, kg_block)
+    user_text = SYSTEM_PROMPT + '\n\n' + build_user_text(record)
     if no_image:
         prompt = f'[INST] {user_text} [/INST]'
         input_ids = components.tokenizer(prompt, return_tensors='pt').input_ids[0]
@@ -55,26 +50,6 @@ def _build_llava(components: _LLaVAComponents, record: dict, kg_block: str, no_i
     images = components.image_processor(record['image'], return_tensors='pt')['pixel_values']
     return {'input_ids': input_ids.unsqueeze(0), 'images': images}
 PROMPT_BUILDERS = {'Mistral/LLaVA': _build_llava, 'Gemma': lambda *a, **k: (_ for _ in ()).throw(NotImplementedError('Use the MedGemma scripts for MedGemma'))}
-_CLEAN_PROBES = [('ingrown toenail', 'Onychocryptosis'), ('hyperopia', 'Hyperopia'), ('astigmatism', 'Astigmatism'), ('temporomandibular disorder', 'Temporomandibular Joint Disorder'), ('seasonal allergic rhinitis', 'Seasonal Allergic Rhinitis'), ('myopia', 'Myopia'), ('gingivitis', 'Gingivitis'), ('dental caries', 'Dental Caries')]
-
-def _sample_clean_probes(note_text: str, n: int, rng) -> list[dict]:
-    nl = (note_text or '').lower()
-    cands = [(s, c) for s, c in _CLEAN_PROBES if s.lower() not in nl and c.lower() not in nl]
-    picks = rng.sample(cands, min(n, len(cands))) if cands else []
-    return [{'head': s, 'tail': c, 'relation': 'canonical_form'} for s, c in picks]
-_UMLS_MOD = None
-
-def _umls_mod():
-    global _UMLS_MOD
-    if _UMLS_MOD is None:
-        import importlib.util
-        p = Path(__file__).resolve().parent.parent / 'code' / '07c_umls_relations.py'
-        sp = importlib.util.spec_from_file_location('umls07c', p)
-        m = importlib.util.module_from_spec(sp)
-        sys.modules['umls07c'] = m
-        sp.loader.exec_module(m)
-        _UMLS_MOD = m
-    return _UMLS_MOD
 
 def _find_best_checkpoint(run_base: Path) -> Path | None:
     if not run_base.exists():
@@ -153,9 +128,9 @@ def already_done_ids(out_path: Path) -> set[str]:
                 pass
     return done
 
-def generate_one(model, processor, builder, record: dict, kg_block: str, max_new_tokens: int, do_sample: bool, repetition_penalty: float=1.0, no_repeat_ngram_size: int=0, min_new_tokens: int=0, no_image: bool=False) -> str:
+def generate_one(model, processor, builder, record: dict, max_new_tokens: int, do_sample: bool, repetition_penalty: float=1.0, no_repeat_ngram_size: int=0, min_new_tokens: int=0, no_image: bool=False) -> str:
     import torch
-    inputs = builder(processor, record, kg_block, no_image=no_image)
+    inputs = builder(processor, record, no_image=no_image)
     device = next(model.parameters()).device
     input_ids = inputs['input_ids'].to(device)
     images = inputs.get('images')
@@ -200,7 +175,7 @@ def generate_radiology_summary(model, processor: _LLaVAComponents, report_text: 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--model', default='llava_med_1_5_7b')
-    ap.add_argument('--mode', default=None, choices=['ft', 'ft_mm', 'raft', 'raft_umls'], help='Auto-find best adapter; sets --no-kg for ft and ft_mm (neither adapter ever saw a KG block in training, so injecting one at inference would be an out-of-regime prompt).')
+    ap.add_argument('--mode', default=None, choices=['ft', 'ft_mm'], help='ft = text-only baseline adapter; ft_mm = adapter trained with the radiograph')
     ap.add_argument('--split', default='test', choices=['val', 'test'])
     ap.add_argument('--adapter', default=None, help='Explicit adapter path (overrides --mode).')
     ap.add_argument('--pilot', type=int, default=0, help='Generate only first N records (0 = all).')
@@ -210,15 +185,11 @@ def main() -> int:
     ap.add_argument('--max-new-tokens', type=int, default=512)
     ap.add_argument('--min-new-tokens', type=int, default=0)
     ap.add_argument('--adaptive-length', action='store_true')
-    ap.add_argument('--inject-distractors', type=int, default=0, help='RAFT diagnostic: append N distractor facts to the KG block at INFERENCE (0 = off, the normal behaviour). Tests whether the RAFT adapter learned to ignore irrelevant retrieved facts.')
-    ap.add_argument('--distractor-tag', action='store_true', help="Mark injected distractors with the literal '[DISTRACTOR]' suffix used during training. Default OFF — untagged is the real relevance test.")
     ap.add_argument('--include-radiology', action='store_true')
     ap.add_argument('--include-vqa', action='store_true')
-    ap.add_argument('--no-image', action='store_true', help="Text-only ablation baseline: drop the CXR pixels from the main BHC generation call entirely (note+report(+KG) only). Also skips --include-vqa's visual summary pass. --include-radiology still works normally (text-only: report → summary).")
+    ap.add_argument('--no-image', action='store_true', help="Text-only ablation baseline: drop the CXR pixels from the main BHC generation call entirely (note+report only). Also skips --include-vqa's visual summary pass. --include-radiology still works normally (text-only: report → summary).")
     ap.add_argument('--outdir', type=str, default=None, help='Explicit output directory for generated predictions. Default: auto-named spec.generated_dir path.')
     ap.add_argument('--no-4bit', action='store_true')
-    ap.add_argument('--kg-budget-parity', action='store_true', help='Ablation aid: with --no-kg and --adaptive-length, still size the generation budget as if the KG block were present, so the no-KG arm differs from the KG arm only in prompt content and not in tokens allowed. No effect unless both --no-kg and --adaptive-length are set.')
-    ap.add_argument('--no-kg', action='store_true')
     ap.add_argument('--sample', action='store_true')
     ap.add_argument('--repetition-penalty', type=float, default=1.0)
     ap.add_argument('--no-repeat-ngram', type=int, default=0)
@@ -237,9 +208,6 @@ def main() -> int:
             logger.info(f'[auto-adapter] mode={args.mode} → {args.adapter}')
         else:
             logger.warning(f'[auto-adapter] no checkpoint found in {run_base}')
-        if args.mode in ('ft', 'ft_mm') and (not args.no_kg):
-            args.no_kg = True
-            logger.info(f'[auto] {args.mode} mode: KG disabled (adapter was trained without a KG block)')
     if spec.family not in PROMPT_BUILDERS:
         sys.exit(f'No prompt builder for family {spec.family!r}.')
     builder = PROMPT_BUILDERS[spec.family]
@@ -266,8 +234,6 @@ def main() -> int:
         shard_tag = f'_shard{lo}-{hi}' if is_shard else ''
         out_path = out_dir / f'{args.split}{mode_tag}{shard_tag}_{ts}.jsonl'
         logger.info(f'Writing predictions → {out_path}')
-    retriever = KGRetriever()
-    _probe_rng = random.Random(42)
     model, processor = load_model_and_processor(spec, Path(args.adapter) if args.adapter else None, quant_4bit=not args.no_4bit)
     logger.info(f'Generating on {n_total:,} records (split={args.split}, indices [{lo}, {hi}))')
     done = already_done_ids(out_path)
@@ -282,38 +248,15 @@ def main() -> int:
             rec = ds[i]
             if rec['note_id'] in done:
                 continue
-            _kg_full = ''
-            if not args.no_kg or args.kg_budget_parity:
-                _did = str(rec.get('dicom_id') or Path(rec['cxr_image_path']).stem)
-                if args.mode == 'raft_umls':
-                    _kg_full = _umls_mod().build_enriched_kg_block(retriever, rec['input_note'], _did, section='hospital_course')
-                else:
-                    _kg_full = retriever.build_kg_block(note_text=rec['input_note'], dicom_id=_did, section='hospital_course')
-            kg_block = '' if args.no_kg else _kg_full
-            if args.inject_distractors > 0:
-                _d = _sample_clean_probes(rec['input_note'], args.inject_distractors, _probe_rng)
-                _suffix = '  [DISTRACTOR]' if args.distractor_tag else ''
-                _lines = [f"- {d['head']}  --{d['relation']}-->  {d['tail']}{_suffix}" for d in _d]
-                if _lines:
-                    if kg_block.strip():
-                        kg_block = kg_block + '\n' + '\n'.join(_lines)
-                    else:
-                        kg_block = 'KNOWN RELATIONS (general medical knowledge — do NOT introduce patient facts not in the note):\n' + '\n'.join(_lines)
-                    _injected_terms = [d['tail'] for d in _d]
-                else:
-                    _injected_terms = []
-            else:
-                _injected_terms = []
             if args.adaptive_length:
                 note_chars = len(rec.get('input_note', ''))
                 report_chars = len(rec.get('radiology_report', '') or rec.get('report', ''))
-                kg_chars = len(_kg_full) if args.kg_budget_parity else len(kg_block)
-                evidence_tokens = (note_chars + report_chars + kg_chars) // 4
+                evidence_tokens = (note_chars + report_chars) // 4
                 this_max_new = max(384, min(1024, int(evidence_tokens * 0.35)))
             else:
                 this_max_new = args.max_new_tokens
             try:
-                pred = generate_one(model, processor, builder, rec, kg_block, max_new_tokens=this_max_new, min_new_tokens=args.min_new_tokens, do_sample=args.sample, repetition_penalty=args.repetition_penalty, no_repeat_ngram_size=args.no_repeat_ngram, no_image=args.no_image)
+                pred = generate_one(model, processor, builder, rec, max_new_tokens=this_max_new, min_new_tokens=args.min_new_tokens, do_sample=args.sample, repetition_penalty=args.repetition_penalty, no_repeat_ngram_size=args.no_repeat_ngram, no_image=args.no_image)
                 if args.include_radiology:
                     rad_report = (rec.get('radiology_report') or rec.get('report') or '').strip()
                     if rad_report:
@@ -335,7 +278,7 @@ def main() -> int:
             except Exception as e:
                 logger.error(f"[{i}] note_id={rec['note_id']}: {e}")
                 continue
-            fout.write(json.dumps({'note_id': rec['note_id'], 'subject_id': rec['subject_id'], 'study_id': rec['study_id'], 'cxr_image_path': rec.get('cxr_image_path', ''), 'dicom_id': rec.get('dicom_id', ''), 'prediction': pred, 'target': rec['target'], 'kg_used': bool(kg_block), 'injected_distractors': _injected_terms}) + '\n')
+            fout.write(json.dumps({'note_id': rec['note_id'], 'subject_id': rec['subject_id'], 'study_id': rec['study_id'], 'cxr_image_path': rec.get('cxr_image_path', ''), 'dicom_id': rec.get('dicom_id', ''), 'prediction': pred, 'target': rec['target']}) + '\n')
             fout.flush()
             n_written += 1
             if n_written <= 2 or n_written % 5 == 0:
@@ -383,7 +326,6 @@ def main() -> int:
             f.write(f'RECORD {i} / {len(all_records)}\n')
             f.write(f"note_id:    {r.get('note_id', '')}\n")
             f.write(f"study_id:   {r.get('study_id', '')}\n")
-            f.write(f"kg_used:    {r.get('kg_used', '')}\n")
             f.write('=' * 100 + '\n\n')
             f.write('--- REFERENCE BHC ---\n')
             f.write(_wrap(r.get('target', '')) + '\n\n')
@@ -418,7 +360,6 @@ def main() -> int:
                 f.write(f'RECORD {i} / {len(cleaned_records)}\n')
                 f.write(f"note_id:    {r.get('note_id', '')}\n")
                 f.write(f"study_id:   {r.get('study_id', '')}\n")
-                f.write(f"kg_used:    {r.get('kg_used', '')}\n")
                 f.write('=' * 100 + '\n\n')
                 f.write('--- REFERENCE BHC (cleaned) ---\n')
                 f.write(_wrap(r.get('target', '')) + '\n\n')
@@ -427,7 +368,7 @@ def main() -> int:
         logger.info(f'  also wrote cleaned: {cl_jsonl.name} / {cl_json.name} / {cl_txt.name}')
     except Exception as _e:
         logger.warning(f'Auto-clean failed ({_e}); raw .jsonl is unaffected.')
-    manifest = {'model_short_name': spec.short_name, 'model_hf_id': spec.hf_id, 'split': args.split, 'mode': args.mode, 'adapter': args.adapter, 'pilot': args.pilot, 'smoke': args.smoke, 'no_kg': args.no_kg, 'kg_budget_parity': args.kg_budget_parity, 'umls_relations': args.mode == 'raft_umls', 'inject_distractors': args.inject_distractors, 'distractor_tag': args.distractor_tag, 'no_4bit': args.no_4bit, 'no_image': args.no_image, 'include_radiology': args.include_radiology, 'include_vqa': args.include_vqa, 'sample': args.sample, 'max_new_tokens': args.max_new_tokens, 'min_new_tokens': args.min_new_tokens, 'adaptive_length': args.adaptive_length, 'n_written': n_written, 'elapsed_seconds': round(elapsed, 1), 'output_jsonl': str(out_path), 'timestamp': ts}
+    manifest = {'model_short_name': spec.short_name, 'model_hf_id': spec.hf_id, 'split': args.split, 'mode': args.mode, 'adapter': args.adapter, 'pilot': args.pilot, 'smoke': args.smoke, 'no_4bit': args.no_4bit, 'no_image': args.no_image, 'include_radiology': args.include_radiology, 'include_vqa': args.include_vqa, 'sample': args.sample, 'max_new_tokens': args.max_new_tokens, 'min_new_tokens': args.min_new_tokens, 'adaptive_length': args.adaptive_length, 'n_written': n_written, 'elapsed_seconds': round(elapsed, 1), 'output_jsonl': str(out_path), 'timestamp': ts}
     (out_dir / f'{out_path.stem}_manifest.json').write_text(json.dumps(manifest, indent=2))
     return 0
 if __name__ == '__main__':

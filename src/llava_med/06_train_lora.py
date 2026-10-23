@@ -26,9 +26,6 @@ def _import_local(name: str, filename: str):
     sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
-_kg_mod = _import_local('kg_retrieval', '07_kg_retrieval.py')
-KGRetriever = _kg_mod.KGRetriever
-COMMON_ABBREVS = _kg_mod.COMMON_ABBREVS
 DEFAULT_MODEL = 'llava_med_1_5_7b'
 LORA_CONFIG = dict(r=16, lora_alpha=16, lora_dropout=0.05, bias='none', task_type='CAUSAL_LM', target_modules=['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
 SYSTEM_PROMPT = "You are a clinical summarizer. Generate the Brief Hospital Course (BHC) narrative from the patient's clinical note, chest X-ray, and paired radiology report.  The narrative should cover, in order: (1) Patient and Service; (2) Chief Complaint / Admission Context; (3) History of Present Illness; (4) Past Medical / Surgical History; (5) Medications on Admission; (6) Medications (Discharge / Ongoing); (7) Physical Examination; (8) Investigations / Labs / Imaging; (9) Assessment / Impression; (10) Hospital Course; (11) Discharge Condition; (12) Radiology Findings; (13) Radiology Impression; (14) Procedures Performed; (15) Discharge Disposition; (16) Follow-Up & Recommendations — composed of conditional subsections rendered ONLY when the input supports them: (16.1) Consultations; (16.2) Safety Flags (drug interactions, allergies, contraindications); (16.3) Medication Changes; (16.4) Post-operative Care; (16.5) Activity; (16.6) Appointments; (16.7) Follow-up Tests / Imaging; (16.8) Call Doctor If; (16.9) Other Instructions.  Use ONLY information present in the note, image, and report; do not introduce facts that are not supported.  Be concise, accurate, and clinically faithful.  Empty sections and subsections may be omitted."
@@ -51,57 +48,17 @@ class MMTrainDataset(Dataset):
         img = Image.open(img_path).convert('RGB')
         dicom_id = Path(r['cxr_image_path']).stem
         return {'image': img, 'note': r['input_note'], 'study_id': str(r['study_id']), 'dicom_id': dicom_id, 'report': r.get('radiology_report', ''), 'target': r['target_bhc']}
-_UMLS_MOD = None
-
-def _umls_mod():
-    global _UMLS_MOD
-    if _UMLS_MOD is None:
-        import importlib.util
-        p = HERE.parent / 'code' / '07c_umls_relations.py'
-        s = importlib.util.spec_from_file_location('umls07c', p)
-        m = importlib.util.module_from_spec(s)
-        sys.modules['umls07c'] = m
-        s.loader.exec_module(m)
-        _UMLS_MOD = m
-    return _UMLS_MOD
-
 class LLaVACollator:
 
-    def __init__(self, tokenizer, image_processor, max_length: int=2048, mode: str='ft', kg: KGRetriever | None=None, n_distractors: int=2, rng_seed: int=42):
-        if mode not in ('ft', 'ft_mm', 'raft', 'raft_umls'):
-            raise ValueError(f"mode must be 'ft', 'ft_mm', 'raft' or 'raft_umls', got {mode!r}")
-        if mode in ('raft', 'raft_umls') and kg is None:
-            raise ValueError('RAFT mode requires a KGRetriever instance.')
+    def __init__(self, tokenizer, image_processor, max_length: int=2048, mode: str='ft', rng_seed: int=42):
+        if mode not in ('ft', 'ft_mm'):
+            raise ValueError(f"mode must be 'ft' or 'ft_mm', got {mode!r}")
         self.tokenizer = tokenizer
         self.image_processor = image_processor
         self.max_length = max_length
         self.mode = mode
-        self.use_image = mode in ('ft_mm', 'raft', 'raft_umls')
-        self.use_kg = mode in ('raft', 'raft_umls')
-        self.use_umls = mode == 'raft_umls'
-        self.kg = kg
-        self.n_distractors = n_distractors
+        self.use_image = mode == 'ft_mm'
         self._rng = random.Random(rng_seed)
-
-    def _text_distractors(self, note: str) -> list[str]:
-        if self.kg is None:
-            return []
-        distractors = self.kg.text_distractors(note, n=self.n_distractors)
-        return [f"- {d['head']}  --{d['relation']}-->  {d['tail']}  [DISTRACTOR]" for d in distractors]
-
-    def _kg_text_for(self, note: str, dicom_id: str) -> str:
-        if self.use_umls:
-            real_block = _umls_mod().build_enriched_kg_block(self.kg, note, str(dicom_id), section='hospital_course')
-        else:
-            real_block = self.kg.build_kg_block(note_text=note, dicom_id=str(dicom_id), section='hospital_course')
-        distractor_lines = self._text_distractors(note)
-        if real_block and distractor_lines:
-            return real_block + '\n' + '\n'.join(distractor_lines)
-        if real_block:
-            return real_block
-        if distractor_lines:
-            return 'KNOWN RELATIONS (general medical knowledge — do NOT introduce patient facts not in the note):\n' + '\n'.join(distractor_lines)
-        return ''
 
     def _user_text(self, note: str, dicom_id: str | None, report: str | None=None, report_char_cap: int=1500) -> str:
         parts = [SYSTEM_PROMPT, '', f'Patient note:\n{note}']
@@ -110,10 +67,6 @@ class LLaVACollator:
             if len(rep) > report_char_cap:
                 rep = rep[:report_char_cap].rstrip()
             parts.append(f'Paired radiology report:\n{rep}')
-        if self.use_kg:
-            kg_text = self._kg_text_for(note, dicom_id or '')
-            if kg_text:
-                parts.append(kg_text)
         parts.append('Generate the Brief Hospital Course:')
         return '\n\n'.join(parts)
 
@@ -190,8 +143,7 @@ def main() -> int:
     ap.add_argument('--learning-rate', type=float, default=0.0002)
     ap.add_argument('--max-length', type=int, default=2048)
     ap.add_argument('--model', type=str, default=DEFAULT_MODEL)
-    ap.add_argument('--mode', choices=['ft', 'ft_mm', 'raft', 'raft_umls'], default='ft', help='ft = note+report (text-only control); ft_mm = note+report+CXR, NO KG, NO distractors (plain multimodal SFT — the control that isolates retrieval/KG against raft); raft = note+report+CXR+KG+distractors')
-    ap.add_argument('--distractors', type=int, default=2)
+    ap.add_argument('--mode', choices=['ft', 'ft_mm'], default='ft', help='ft = note + report (text-only baseline); ft_mm = note + report + radiograph')
     ap.add_argument('--resume', type=str, default=None)
     ap.add_argument('--auto-resume', action='store_true')
     ap.add_argument('--fsdp', action='store_true')
@@ -200,15 +152,14 @@ def main() -> int:
     ap.add_argument('--logging-steps', type=int, default=50)
     args = ap.parse_args()
     if args.fsdp and args.grad_accum > 1:
-        print(f'[fsdp] WARNING: overriding grad_accum {args.grad_accum}→1 (FSDP full_shard + no_sync OOMs, cf. feedback_fsdp_oom.md)')
+        print(f'[fsdp] WARNING: overriding grad_accum {args.grad_accum}→1')
         args.grad_accum = 1
     if not torch.cuda.is_available():
         sys.exit('ERROR: CUDA not available. Use sbatch to submit to a GPU node.')
     spec = get_model(args.model)
     print(f'[model] {spec.short_name}  ({spec.kind})  hf_id={spec.hf_id}')
-    _use_image = args.mode in ('ft_mm', 'raft', 'raft_umls')
-    _use_kg = args.mode in ('raft', 'raft_umls')
-    print(f'[mode]  {args.mode}   image={_use_image}  kg={_use_kg}' + (f'  (distractors={args.distractors})' if _use_kg else ''))
+    _use_image = args.mode == 'ft_mm'
+    print(f'[mode]  {args.mode}   image={_use_image}')
     run_base = spec.run_dir / args.mode / 'fsdp' if args.fsdp else spec.run_dir / args.mode
     if args.auto_resume and args.resume is None:
         if run_base.exists():
@@ -315,8 +266,7 @@ def main() -> int:
     train_ds = MMTrainDataset(_split_path('train'), pilot=args.pilot)
     eval_ds = MMTrainDataset(_split_path('val'), pilot=args.pilot // 5 if args.pilot else 200)
     print(f'[data] train: {len(train_ds):,}  val: {len(eval_ds):,}')
-    kg = KGRetriever() if args.mode in ('raft', 'raft_umls') else None
-    collator = LLaVACollator(tokenizer, image_processor, max_length=args.max_length, mode=args.mode, kg=kg, n_distractors=args.distractors)
+    collator = LLaVACollator(tokenizer, image_processor, max_length=args.max_length, mode=args.mode)
     ta_kwargs = dict(output_dir=str(out_dir), num_train_epochs=args.epochs, per_device_train_batch_size=args.batch_size, per_device_eval_batch_size=args.batch_size, gradient_accumulation_steps=args.grad_accum, learning_rate=args.learning_rate, lr_scheduler_type='cosine_with_min_lr', lr_scheduler_kwargs={'min_lr_rate': 0.005}, warmup_ratio=0.03, weight_decay=0.0, bf16=True, logging_steps=args.logging_steps, **{'max_steps': args.max_steps} if args.max_steps else {}, eval_strategy='steps' if args.eval_steps else 'no', eval_steps=args.eval_steps, save_strategy='steps', save_steps=200, save_total_limit=10, load_best_model_at_end=args.eval_steps is not None, metric_for_best_model='eval_loss' if args.eval_steps is not None else None, report_to='none', gradient_checkpointing=True, gradient_checkpointing_kwargs={'use_reentrant': False}, optim='adamw_torch_fused', seed=42, remove_unused_columns=False, dataloader_pin_memory=False, dataloader_num_workers=4, dataloader_prefetch_factor=2, max_grad_norm=0.3)
     if args.fsdp:
         ta_kwargs['fsdp'] = 'full_shard auto_wrap'
@@ -395,7 +345,7 @@ def main() -> int:
     elapsed = time.time() - t0
     print(f'[save] adapters → {out_dir}')
     trainer.save_model(str(out_dir))
-    summary = {'model_short_name': spec.short_name, 'model_hf_id': spec.hf_id, 'model_family': spec.family, 'model_kind': spec.kind, 'mode': args.mode, 'quantization': 'bf16', 'n_distractors': args.distractors if args.mode in ('raft', 'raft_umls') else 0, 'kg_block': args.mode in ('raft', 'raft_umls'), 'umls_relations': args.mode == 'raft_umls', 'cxr_image': args.mode in ('ft_mm', 'raft'), 'lora_config': LORA_CONFIG, 'epochs': args.epochs, 'batch_size': args.batch_size, 'grad_accum': args.grad_accum, 'learning_rate': args.learning_rate, 'max_length': args.max_length, 'pilot': args.pilot, 'train_size': len(train_ds), 'eval_size': len(eval_ds), 'elapsed_seconds': round(elapsed, 1), 'gpu': torch.cuda.get_device_name(0), 'timestamp': ts}
+    summary = {'model_short_name': spec.short_name, 'model_hf_id': spec.hf_id, 'model_family': spec.family, 'model_kind': spec.kind, 'mode': args.mode, 'quantization': 'bf16', 'cxr_image': args.mode == 'ft_mm', 'lora_config': LORA_CONFIG, 'epochs': args.epochs, 'batch_size': args.batch_size, 'grad_accum': args.grad_accum, 'learning_rate': args.learning_rate, 'max_length': args.max_length, 'pilot': args.pilot, 'train_size': len(train_ds), 'eval_size': len(eval_ds), 'elapsed_seconds': round(elapsed, 1), 'gpu': torch.cuda.get_device_name(0), 'timestamp': ts}
     (out_dir / 'run_summary.json').write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
     print(f'✅ Step 6 (LLaVA-Med) done in {elapsed / 60:.1f} min.')

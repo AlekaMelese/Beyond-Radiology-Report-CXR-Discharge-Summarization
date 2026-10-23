@@ -151,7 +151,38 @@ The text-only baseline of each model uses exactly the same settings.
 
 ## 5. Prompts
 
-### 5.1 Hospital course (fine-tuned model)
+### 5.1 Hospital course during training
+
+During fine-tuning, the hospital course is learned with a longer system prompt that lists the sections a
+discharge summary may contain (shown for LLaVA-Med-7B; the radiograph token is omitted for the text-only
+baseline, and the report is cut to its first 1,500 characters):
+
+```
+[INST] <image>
+You are a clinical summarizer. Generate the Brief Hospital Course (BHC) narrative from the patient's
+clinical note, chest X-ray, and paired radiology report.  The narrative should cover, in order: (1)
+Patient and Service; (2) Chief Complaint / Admission Context; (3) History of Present Illness; (4)
+Past Medical / Surgical History; (5) Medications on Admission; (6) Medications (Discharge /
+Ongoing); (7) Physical Examination; (8) Investigations / Labs / Imaging; (9) Assessment /
+Impression; (10) Hospital Course; (11) Discharge Condition; (12) Radiology Findings; (13) Radiology
+Impression; (14) Procedures Performed; (15) Discharge Disposition; (16) Follow-Up & Recommendations
+— composed of conditional subsections rendered ONLY when the input supports them: (16.1)
+Consultations; (16.2) Safety Flags (drug interactions, allergies, contraindications); (16.3)
+Medication Changes; (16.4) Post-operative Care; (16.5) Activity; (16.6) Appointments; (16.7) Follow-
+up Tests / Imaging; (16.8) Call Doctor If; (16.9) Other Instructions.  Use ONLY information present
+in the note, image, and report; do not introduce facts that are not supported.  Be concise,
+accurate, and clinically faithful.  Empty sections and subsections may be omitted.
+
+Patient note:
+{note}
+
+Paired radiology report:
+{report}
+
+Generate the Brief Hospital Course: [/INST]
+```
+
+### 5.2 Hospital course at generation
 
 ```
 SYSTEM
@@ -173,7 +204,7 @@ Write the Brief Hospital Course (BHC):
 With the radiograph, the image is passed to the model's processor together with this prompt. The
 text-only baseline uses the same prompt without the image.
 
-### 5.2 Radiology findings (separate pass, report only)
+### 5.3 Radiology findings (separate pass, report only)
 
 ```
 {system prompt above}
@@ -187,7 +218,7 @@ REPORT:
 SUMMARY:
 ```
 
-### 5.3 Interpretation of the radiograph (separate pass, image only)
+### 5.4 Interpretation of the radiograph (separate pass, image only)
 
 ```
 {system prompt above}
@@ -198,7 +229,7 @@ Do not speculate beyond what is visible in the image.
 
 Each model wraps these prompts in its own chat format (e.g. `[INST] … [/INST]` for LLaVA-Med).
 
-### 5.4 Decoding
+### 5.5 Decoding
 
 | Pass | Maximum new tokens | Decoding |
 |---|---|---|
@@ -242,28 +273,34 @@ credentialing and signing the data use agreement. No source patient data (notes,
 
 ## 8. Code
 
+The code for **LLaVA-Med-7B** is provided as a reference implementation; the other two models follow the
+same pipeline with their own model loading and chat format.
+
 ```
 src/
-├── data/                       # shared data preparation
-│   ├── 01_build_multimodal_join.py   # join notes, reports and radiographs into records
-│   ├── 02_split_dataset.py           # patient-level 80:10:10 split
-│   ├── 04_preprocess.py              # image resizing (512 x 512) and text normalization
-│   └── 04b_clean_text.py             # placeholder removal and note truncation
-├── llava_med/                  # LLaVA-Med-7B
-├── chexagent/                  # CheXagent-8b
-└── medgemma/                   # MedGemma-27B
-    ├── models_config.py              # model id and settings
-    ├── 05_multimodal_dataset.py      # dataset (note + report, with or without the radiograph)
-    ├── 06_train_lora.py              # LoRA fine-tuning: --mode ft_mm (with radiograph), --mode ft (text-only baseline)
-    ├── 08_generate.py                # three-pass generation
-    ├── 10_evaluate.py                # evaluation measures
-    └── 07_kg_retrieval.py            # imported by the scripts; not used in this paper
+├── data/                              # data preparation
+│   ├── 01_build_multimodal_join.py    # join notes, reports and radiographs into records
+│   ├── 02_split_dataset.py            # patient-level 80:10:10 split
+│   ├── 04_preprocess.py               # image resizing (512 x 512) and text normalization
+│   └── 04b_clean_text.py              # placeholder removal and note truncation
+└── llava_med/                         # LLaVA-Med-7B
+    ├── models_config.py               # model id and output folders
+    ├── 05_multimodal_dataset.py       # dataset (note, report and radiograph)
+    ├── 06_train_lora.py               # LoRA fine-tuning: --mode ft_mm (with radiograph), --mode ft (text-only baseline)
+    ├── 08_generate.py                 # three-pass generation (--include-radiology, --include-vqa; --no-image for the baseline)
+    └── 10_evaluate.py                 # the eight evaluation measures
 ```
 
-Each model folder contains the scripts that were used for that model. The data folder is set by
-`DATA_DIR` in the scripts (default `data/`). The scripts also contain retrieval options from related
-work (`--mode raft`, `07_kg_retrieval.py`); this paper uses only `--mode ft_mm` (note, report and radiograph)
-and `--mode ft` (the text-only baseline).
+Example:
+
+```bash
+python src/llava_med/06_train_lora.py --mode ft_mm --fsdp          # train with the radiograph
+python src/llava_med/06_train_lora.py --mode ft --fsdp             # train the text-only baseline
+python src/llava_med/08_generate.py --mode ft_mm --include-radiology --include-vqa
+python src/llava_med/10_evaluate.py <predictions.jsonl>
+```
+
+Each script reads and writes a `data/` folder next to it.
 
 ---
 
