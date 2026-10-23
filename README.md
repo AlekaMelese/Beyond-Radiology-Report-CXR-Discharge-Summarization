@@ -392,27 +392,14 @@ de-identification placeholders). The source note, report and image are not inclu
 shown as generated, including its errors: the radiology findings and the radiograph interpretation
 contain statements that do not match this patient.
 
-### Part 1: Brief hospital course
-
-> Mr. is a year old male with a history of Hodgkin's Lymphoma s/p splenectomy who presented with fever and cough.
->
-> **Fever/Cough:** Patient presented with fever and cough. He was started on empiric azithromycin by his PCP for presumed PNA. He failed to improve, remained intermittently febrile with cough productive of yellow sputum. He represented to his PCP had a WBC of 14 (N90), CXR w L-sided infiltrate and was changed to moxifloxacin. Patient reported improvement cough, fever curve since starting moxifloxacin. Given his concern for failure to improve he presented to the ED for further evaluation and management. In the ED he received 2L NS and was started on vancomycin and ordered for CTX/flagyl (did not receive prior to leaving ED). On the floor, he remained afebrile and his WBC count trended down. He was discharged on 2 weeks of moxifloxacin.
->
-> **Hypothyroidism:** Continued Synthroid 75mcg daily.
->
-> **HTN:** Continued Toprol 100mg daily, Norvasc 2.5mg daily, Hctz 12.5mg daily, Terazosin 1mg daily, ASA 81mg daily, Lisinopril 20mg daily.
->
-> **Transitional Issues:**
-> - Patient will need to complete 2 weeks of moxifloxacin
-> - Patient will need to have repeat CXR in weeks to document resolution of LLL opacity
-
-### Part 2: Radiology findings
-
-> Ms. is a year old female with a history of splenectomy who presented with cough and chills. She was admitted to the hospital for observation and treatment of presumed pneumonia. A chest x-ray was obtained which did not show any evidence of pneumonia. She was started on levofloxacin and azithromycin. She remained afebrile with a normal white blood cell count. She was discharged home on a 5 day course of levofloxacin and azithromycin. She will follow up with her primary care provider.
-
-### Part 3: Interpretation of the radiograph
-
-> The chest x-ray shows a large right pleural effusion. There is no evidence of pneumothorax. The patient is also noted to have a widened mediastinum. 1. Pleural effusion: The patient was admitted for further workup of the large right pleural effusion. A thoracentesis was performed and 1.5 L of fluid was drained. The fluid was sent for cytology and the results are pending. The patient was also started on a course of levofloxacin for a possible pneumonia. The patient's chest x-ray showed a decrease in the size of the pleural effusion after the thoracentesis. The patient was discharged with follow-up with her PCP and a repeat chest x-ray. 2. Widened mediastinum: ...
+<table>
+<tr><th align="left">Part 1: Brief hospital course</th></tr>
+<tr><td><p>Mr. is a year old male with a history of Hodgkin's Lymphoma s/p splenectomy who presented with fever and cough.</p><p><b>Fever/Cough:</b> Patient presented with fever and cough. He was started on empiric azithromycin by his PCP for presumed PNA. He failed to improve, remained intermittently febrile with cough productive of yellow sputum. He represented to his PCP had a WBC of 14 (N90), CXR w L-sided infiltrate and was changed to moxifloxacin. Patient reported improvement cough, fever curve since starting moxifloxacin. Given his concern for failure to improve he presented to the ED for further evaluation and management. In the ED he received 2L NS and was started on vancomycin and ordered for CTX/flagyl (did not receive prior to leaving ED). On the floor, he remained afebrile and his WBC count trended down. He was discharged on 2 weeks of moxifloxacin.</p><p><b>Hypothyroidism:</b> Continued Synthroid 75mcg daily.</p><p><b>HTN:</b> Continued Toprol 100mg daily, Norvasc 2.5mg daily, Hctz 12.5mg daily, Terazosin 1mg daily, ASA 81mg daily, Lisinopril 20mg daily.</p><p><b>Transitional Issues:</b><ul><li>Patient will need to complete 2 weeks of moxifloxacin</li><li>Patient will need to have repeat CXR in weeks to document resolution of LLL opacity</li></ul></p></td></tr>
+<tr><th align="left">Part 2: Radiology findings</th></tr>
+<tr><td><p>Ms. is a year old female with a history of splenectomy who presented with cough and chills. She was admitted to the hospital for observation and treatment of presumed pneumonia. A chest x-ray was obtained which did not show any evidence of pneumonia. She was started on levofloxacin and azithromycin. She remained afebrile with a normal white blood cell count. She was discharged home on a 5 day course of levofloxacin and azithromycin. She will follow up with her primary care provider.</p></td></tr>
+<tr><th align="left">Part 3: Interpretation of the radiograph</th></tr>
+<tr><td><p>The chest x-ray shows a large right pleural effusion. There is no evidence of pneumothorax. The patient is also noted to have a widened mediastinum. 1. Pleural effusion: The patient was admitted for further workup of the large right pleural effusion. A thoracentesis was performed and 1.5 L of fluid was drained. The fluid was sent for cytology and the results are pending. The patient was also started on a course of levofloxacin for a possible pneumonia. The patient's chest x-ray showed a decrease in the size of the pleural effusion after the thoracentesis. The patient was discharged with follow-up with her PCP and a repeat chest x-ray. 2. Widened mediastinum: ...</p></td></tr>
+</table>
 
 ---
 
