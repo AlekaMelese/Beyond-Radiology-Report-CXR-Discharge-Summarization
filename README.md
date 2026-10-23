@@ -89,15 +89,15 @@ with the radiograph, and $\mathbf{E}$ alone for the text-only baseline.
 ### 3.2 Generation
 The decoder generates the hospital course $\mathbf{y} = (y_1, \dots, y_L)$ autoregressively:
 
-$$p_\theta(\mathbf{y} \mid \mathbf{N}, \mathbf{R}, \mathbf{I}) = \prod_{t=1}^{L} p_\theta\big(y_t \mid y_{<t}, \mathbf{V}, \mathbf{E}\big),$$
+$$p_\theta(\mathbf{y} \mid \mathbf{N}, \mathbf{R}, \mathbf{I}) = \prod_{t=1}^{L} p_\theta\big(y_t \mid y_{\lt t}, \mathbf{V}, \mathbf{E}\big),$$
 
-with greedy decoding, $y_t = \arg\max_{w} p_\theta(w \mid y_{<t}, \mathbf{V}, \mathbf{E})$.
+with greedy decoding, $y_t = \arg\max_{w} p_\theta(w \mid y_{\lt t}, \mathbf{V}, \mathbf{E})$.
 
 ### 3.3 Training objective
 Each model is fine-tuned by minimizing the negative log-likelihood of the reference hospital course
 $\mathbf{y}^\ast$, computed **on the target tokens only** (prompt and padding tokens are masked out of the loss):
 
-$$\mathcal{L}(\theta) = -\sum_{t=1}^{|\mathbf{y}^\ast|} \log p_\theta\big(y^\ast_t \mid y^\ast_{<t}, \mathbf{V}, \mathbf{E}\big).$$
+$$\mathcal{L}(\theta) = -\sum_{t=1}^{\lvert \mathbf{y}^\ast \rvert} \log p_\theta\big(y^\ast_t \mid y^\ast_{\lt t}, \mathbf{V}, \mathbf{E}\big).$$
 
 ### 3.4 Low-rank adaptation (LoRA)
 For each adapted weight matrix $W_0 \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ of the decoder
