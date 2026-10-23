@@ -55,6 +55,14 @@ a model-specific connector maps them to visual tokens in the language model's em
 autoregressive language-model decoder reads the visual tokens together with the tokenized note, report
 and instruction.
 
+<p align="center">
+  <img src="images/architecture.png" width="100%" alt="Architecture common to the three models">
+</p>
+
+*Architecture common to the three models. The vision encoder, the connector and the text embedding are
+frozen; only the LoRA adapters in the decoder are trained. The radiograph enters only through the visual
+tokens, so removing them gives the matched text-only baseline.*
+
 | Model | Hugging Face id | Vision encoder; connector |
 |---|---|---|
 | LLaVA-Med-7B | `microsoft/llava-med-v1.5-mistral-7b` | CLIP ViT-L/14 (336 px); two-layer MLP |
@@ -286,6 +294,7 @@ data use agreement. No source patient data (notes, reports or images) is include
 .
 ├── README.md                              # this page: supplementary material and usage
 ├── LICENSE                                # MIT License
+├── images/architecture.png                # architecture figure
 ├── requirements.txt                       # Python packages
 └── src/
     ├── data/                              # data preparation (run in this order)
