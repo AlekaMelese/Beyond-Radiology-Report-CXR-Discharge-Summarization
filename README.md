@@ -18,7 +18,7 @@ architectures, the training hyperparameters, the prompts and the evaluation prot
 5. [Prompts](#5-prompts)
 6. [Data and evaluation protocol](#6-data-and-evaluation-protocol)
 7. [Data access](#7-data-access)
-8. [Code](#8-code)
+8. [Repository structure and code](#8-repository-structure-and-code)
 9. [Example generated summary](#9-example-generated-summary)
 
 ---
@@ -271,33 +271,36 @@ credentialing and signing the data use agreement. No source patient data (notes,
 
 ---
 
-## 8. Code
-
-The code for **LLaVA-Med-7B** is provided as a reference implementation; the other two models follow the
-same pipeline with their own model loading and chat format.
+## 8. Repository structure and code
 
 ```
-src/
-├── data/                              # data preparation
-│   ├── 01_build_multimodal_join.py    # join notes, reports and radiographs into records
-│   ├── 02_split_dataset.py            # patient-level 80:10:10 split
-│   ├── 04_preprocess.py               # image resizing (512 x 512) and text normalization
-│   └── 04b_clean_text.py              # placeholder removal and note truncation
-└── llava_med/                         # LLaVA-Med-7B
-    ├── models_config.py               # model id and output folders
-    ├── 05_multimodal_dataset.py       # dataset (note, report and radiograph)
-    ├── 06_train_lora.py               # LoRA fine-tuning: --mode ft_mm (with radiograph), --mode ft (text-only baseline)
-    ├── 08_generate.py                 # three-pass generation (--include-radiology, --include-vqa; --no-image for the baseline)
-    └── 10_evaluate.py                 # the eight evaluation measures
+.
+├── README.md                          # this page: supplementary material and usage
+├── LICENSE                            # MIT License
+└── src/
+    ├── data/                          # data preparation
+    │   ├── 01_build_multimodal_join.py    # join notes, reports and radiographs into records
+    │   ├── 02_split_dataset.py            # patient-level 80:10:10 split
+    │   ├── 04_preprocess.py               # image resizing (512 x 512) and text normalization
+    │   └── 04b_clean_text.py              # placeholder removal and note truncation
+    └── codes/                         # training, generation and evaluation
+        ├── models_config.py               # model id and output folders
+        ├── 05_multimodal_dataset.py       # dataset (note, report and radiograph)
+        ├── 06_train_lora.py               # LoRA fine-tuning: --mode ft_mm (with radiograph), --mode ft (text-only baseline)
+        ├── 08_generate.py                 # three-pass generation (--include-radiology, --include-vqa; --no-image for the baseline)
+        └── 10_evaluate.py                 # the eight evaluation measures
 ```
+
+The scripts in `src/codes/` are the reference implementation for LLaVA-Med-7B; CheXagent-8b and
+MedGemma-27B follow the same pipeline with their own model loading and chat format.
 
 Example:
 
 ```bash
-python src/llava_med/06_train_lora.py --mode ft_mm --fsdp          # train with the radiograph
-python src/llava_med/06_train_lora.py --mode ft --fsdp             # train the text-only baseline
-python src/llava_med/08_generate.py --mode ft_mm --include-radiology --include-vqa
-python src/llava_med/10_evaluate.py <predictions.jsonl>
+python src/codes/06_train_lora.py --mode ft_mm --fsdp          # train with the radiograph
+python src/codes/06_train_lora.py --mode ft --fsdp             # train the text-only baseline
+python src/codes/08_generate.py --mode ft_mm --include-radiology --include-vqa
+python src/codes/10_evaluate.py <predictions.jsonl>
 ```
 
 Each script reads and writes a `data/` folder next to it.
