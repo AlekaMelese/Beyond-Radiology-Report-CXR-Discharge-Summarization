@@ -17,7 +17,7 @@ architectures, the training hyperparameters, the prompts and the evaluation prot
 4. [Training hyperparameters](#4-training-hyperparameters)
 5. [Prompts](#5-prompts)
 6. [Data and evaluation protocol](#6-data-and-evaluation-protocol)
-7. [Data access](#7-data-access)
+7. [Data sources and access](#7-data-sources-and-access)
 8. [Repository structure and code](#8-repository-structure-and-code)
 9. [Example generated summary](#9-example-generated-summary)
 
@@ -264,10 +264,17 @@ test records.
 
 ---
 
-## 7. Data access
+## 7. Data sources and access
 
-The MIMIC datasets and Discharge_Me are available on [PhysioNet](https://physionet.org/) after
-credentialing and signing the data use agreement. No source patient data (notes, reports or images) is included in this repository.
+| Dataset | Content | Role in this work | Source |
+|---|---|---|---|
+| MIMIC-IV-Ext-BHC (v1.2.0) | Discharge notes with their brief hospital course | Input note and reference summary | [PhysioNet](https://physionet.org/content/labelled-notes-hospital-course/1.2.0/) |
+| MIMIC-CXR (v2.0.0) | Free-text radiology reports | Input report | [PhysioNet](https://physionet.org/content/mimic-cxr/2.0.0/) |
+| MIMIC-CXR-JPG (v2.1.0) | Chest radiographs (JPG) | Input image | [PhysioNet](https://physionet.org/content/mimic-cxr-jpg/2.1.0/) |
+| Discharge_Me (v1.3) | Discharge notes, radiology reports and chest radiographs of unseen patients, with a reference hospital course | External evaluation only (no retraining) | [PhysioNet](https://physionet.org/content/discharge-me/1.3/) |
+
+All four datasets are available on [PhysioNet](https://physionet.org/) after credentialing and signing the
+data use agreement. No source patient data (notes, reports or images) is included in this repository.
 
 ---
 
